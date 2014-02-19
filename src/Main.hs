@@ -3,6 +3,7 @@ module Main where
 import Data.Etcd
 
 
+main :: IO ()
 main = do
     print "Starting etcd client..."
     client <- createClient [ "http://127.0.0.1:4001" ]
