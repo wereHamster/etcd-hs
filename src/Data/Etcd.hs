@@ -4,17 +4,13 @@ module Data.Etcd where
 
 
 import           Data.Aeson hiding (Error)
-import           Data.Aeson.Types (parseMaybe)
-
-import           Data.Maybe
-
 import           Data.ByteString.Char8 (pack)
 
 import           Control.Applicative
 import           Control.Exception
 import           Control.Monad
 
-import           Network.HTTP.Conduit hiding (Response)
+import           Network.HTTP.Conduit hiding (Response, path)
 
 
 data Client = Client
@@ -29,8 +25,8 @@ versionPrefix :: String
 versionPrefix = "v2"
 
 
-url :: Client -> String -> String
-url c p = leaderUrl c ++ "/" ++ versionPrefix ++ "/" ++ p
+buildUrl :: Client -> String -> String
+buildUrl c p = leaderUrl c ++ "/" ++ versionPrefix ++ "/" ++ p
 
 
 ------------------------------------------------------------------------------
@@ -48,6 +44,7 @@ instance FromJSON Action where
     parseJSON (String "expire")           = return EXPIRE
     parseJSON (String "compareAndSwap")   = return CAS
     parseJSON (String "compareAndDelete") = return CAD
+    parseJSON _                           = fail "Action"
 
 
 
@@ -157,26 +154,26 @@ Public API
 -- | Create a new client and initialize it with a list of seed machines. The
 -- list must be non-empty.
 createClient :: [ String ] -> IO Client
-createClient machines = return $ Client (head machines) machines
+createClient seed = return $ Client (head seed) seed
 
 
 listKeys :: Client -> String -> IO [ Node ]
 listKeys client path = do
-    res <- runRequest $ httpGET $ url client $ "keys/" ++ path
-    case res of
-        Left e -> return []
+    hr <- runRequest $ httpGET $ buildUrl client $ "keys/" ++ path
+    case hr of
+        Left _ -> return []
         Right res -> return $ [ _resNode res ]
 
 
 getKey :: Client -> String -> IO (Maybe Node)
 getKey client path = do
-    res <- runRequest $ httpGET $ url client $ "keys/" ++ path
-    case res of
-        Left e -> return Nothing
+    hr <- runRequest $ httpGET $ buildUrl client $ "keys/" ++ path
+    case hr of
+        Left _ -> return Nothing
         Right res -> return $ Just $ _resNode res
 
 
 putKey :: Client -> String -> String -> IO ()
 putKey client path value = do
-    httpPOST (url client $ "keys/" ++ path) [("value", value)]
+    void $ httpPOST (buildUrl client $ "keys/" ++ path) [("value", value)]
     return ()

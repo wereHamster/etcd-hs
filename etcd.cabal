@@ -22,6 +22,8 @@ library
   build-depends:     http-conduit  >= 0
 
   default-language:  Haskell2010
+  ghc-options:       -Wall
+
 
 
 executable etcd-client
@@ -35,3 +37,4 @@ executable etcd-client
   build-depends:     http-conduit  >= 0
 
   default-language:  Haskell2010
+  ghc-options:       -Wall
