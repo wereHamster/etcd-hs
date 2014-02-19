@@ -3,8 +3,10 @@
 module Data.Etcd where
 
 
-import           Data.Aeson
+import           Data.Aeson hiding (Error)
+import           Data.Aeson.Types (parseMaybe)
 
+import           Data.Maybe
 import qualified Data.Map as M
 
 import           Data.ByteString (ByteString)
@@ -17,8 +19,7 @@ import           Control.Applicative
 import           Control.Exception
 import           Control.Monad
 
-import           Network.HTTP.Conduit
-import           Network.HTTP.Types.Method
+import           Network.HTTP.Conduit hiding (Response)
 
 
 data Client = Client
@@ -27,78 +28,160 @@ data Client = Client
     }
 
 
-data Tree
-    = Node
-        { key   :: String
-        , index :: Int
-        }
 
-    | Leaf
-        { key   :: String
-        , index :: Int
+-- | The version prefix used in URLs. The current client supports v2.
+versionPrefix :: String
+versionPrefix = "v2"
 
-        , value :: String
-        }
 
+url :: Client -> String -> String
+url c p = leaderUrl c ++ "/" ++ versionPrefix ++ "/" ++ p
+
+
+------------------------------------------------------------------------------
+-- | Each response comes with an "action" field, which describes what kind of
+-- action was performed.
+data Action = GET | SET | DELETE | CREATE | EXPIRE | CAS | CAD
     deriving (Show, Eq, Ord)
 
 
-parseNode o = Node
-    <$> o .: "key"
-    <*> o .: "index"
-
-parseLeaf o = Leaf
-    <$> o .: "key"
-    <*> o .: "index"
-    <*> o .: "value"
-
-
-instance FromJSON Tree where
-    parseJSON (Object o) = parseLeaf o <|> parseNode o
-    parseJSON _          = fail "Data.Etcd.Tree"
+instance FromJSON Action where
+    parseJSON (String "get")              = return GET
+    parseJSON (String "set")              = return SET
+    parseJSON (String "delete")           = return DELETE
+    parseJSON (String "create")           = return CREATE
+    parseJSON (String "expire")           = return EXPIRE
+    parseJSON (String "compareAndSwap")   = return CAS
+    parseJSON (String "compareAndDelete") = return CAD
 
 
-getJSON :: (FromJSON a) => String -> IO (Maybe a)
-getJSON url = do
+
+------------------------------------------------------------------------------
+-- | The server responds with this object to all successful requests.
+data Response = Response
+    { _resAction   :: Action
+    , _resNode     :: Node
+    , _resPrevNode :: Maybe Node
+    } deriving (Show, Eq, Ord)
+
+
+instance FromJSON Response where
+    parseJSON (Object o) = Response
+        <$> o .:  "action"
+        <*> o .:  "node"
+        <*> o .:? "prevNode"
+
+    parseJSON _ = fail "Response"
+
+
+
+------------------------------------------------------------------------------
+-- | The server sometimes responds to errors with this error object.
+data Error = Error
+    deriving (Show, Eq, Ord)
+
+instance FromJSON Error where
+    parseJSON _ = return Error
+
+
+
+data Node = Node
+    { _nodeKey           :: String
+    , _nodeValue         :: Maybe String
+    , _nodeCreatedIndex  :: Int
+    , _nodeModifiedIndex :: Int
+    , _nodeNodes         :: Maybe [Node]
+    } deriving (Show, Eq, Ord)
+
+
+instance FromJSON Node where
+    parseJSON (Object o) = Node
+        <$> o .:  "key"
+        <*> o .:? "value"
+        <*> o .:  "createdIndex"
+        <*> o .:  "modifiedIndex"
+        <*> o .:? "nodes"
+
+    parseJSON _ = fail "Response"
+
+
+
+{-|---------------------------------------------------------------------------
+
+Low-level HTTP interface
+
+The functions here are used internally when sending requests to etcd. If the
+server is running, the result is 'Either Error Response'. These functions may
+throw an exception if the server is unreachable or not responding.
+
+-}
+
+
+-- A type synonym for a http response.
+type HR = Either Error Response
+
+
+httpGET :: String -> IO HR
+httpGET url = do
     req  <- acceptJSON <$> parseUrl url
     body <- responseBody <$> (withManager $ httpLbs req)
-    return $ decode body
+    return $ maybe (Left Error) Right $ decode body
 
   where
-
+    acceptHeader   = ("Accept","application/json")
     acceptJSON req = req { requestHeaders = acceptHeader : requestHeaders req }
-    acceptHeader = ("Accept","application/json")
 
 
-postUrlEncoded :: String -> [(String, String)] -> IO ()
-postUrlEncoded url params = do
+httpPOST :: String -> [(String, String)] -> IO HR
+httpPOST url params = do
     req' <- parseUrl url
     let req = urlEncodedBody (map (\(k,v) -> (pack k, pack v)) params) $ req'
 
     void $ withManager $ httpLbs req
+    return $ Left Error
 
+
+------------------------------------------------------------------------------
+-- | Run a low-level HTTP request. Catch any exceptions and convert them into
+-- a 'Left Error'.
+runRequest :: IO HR -> IO HR
+runRequest a = catch a (ignoreExceptionWith (return $ Left Error))
 
 ignoreExceptionWith :: a -> SomeException -> a
 ignoreExceptionWith a _ = a
 
 
-listKeys :: Client -> String -> IO [ Tree ]
-listKeys client path = (flip catch) (ignoreExceptionWith (return [])) $ do
-    response <- getJSON $ leaderUrl client ++ "/v1/keys" ++ path
-    return $ maybe [] id response
 
+{-|---------------------------------------------------------------------------
 
-getKey :: Client -> String -> IO (Maybe Tree)
-getKey client path = (flip catch) (ignoreExceptionWith (return Nothing)) $ do
-    getJSON $ leaderUrl client ++ "/v1/keys" ++ path
+Public API
 
-
-putKey :: Client -> String -> String -> IO ()
-putKey client path value = do
-    postUrlEncoded (leaderUrl client ++ "/v1/keys" ++ path) [("value", value)]
+-}
 
 
 -- | Create a new client and initialize it with a list of seed machines. The
 -- list must be non-empty.
 createClient :: [ String ] -> IO Client
 createClient machines = return $ Client (head machines) machines
+
+
+listKeys :: Client -> String -> IO [ Node ]
+listKeys client path = do
+    res <- runRequest $ httpGET $ url client $ "keys/" ++ path
+    case res of
+        Left e -> return []
+        Right res -> return $ [ _resNode res ]
+
+
+getKey :: Client -> String -> IO (Maybe Node)
+getKey client path = do
+    res <- runRequest $ httpGET $ url client $ "keys/" ++ path
+    case res of
+        Left e -> return Nothing
+        Right res -> return $ Just $ _resNode res
+
+
+putKey :: Client -> String -> String -> IO ()
+putKey client path value = do
+    httpPOST (url client $ "keys/" ++ path) [("value", value)]
+    return ()
