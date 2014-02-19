@@ -7,13 +7,8 @@ import           Data.Aeson hiding (Error)
 import           Data.Aeson.Types (parseMaybe)
 
 import           Data.Maybe
-import qualified Data.Map as M
 
-import           Data.ByteString (ByteString)
 import           Data.ByteString.Char8 (pack)
-
-import           Data.Conduit
-import           Data.Conduit.Binary (sinkFile)
 
 import           Control.Applicative
 import           Control.Exception
