@@ -7,6 +7,7 @@ import           Data.Maybe
 
 import           Control.Applicative
 import           Control.Concurrent
+import           Control.Monad
 import           Control.Monad.Random (getRandomR, evalRandIO)
 import           Control.Monad.Trans
 
@@ -38,38 +39,66 @@ setup = do
     return (client, key)
 
 
+expectNode :: Maybe Node -> IO Node
+expectNode = maybe (error "Expected Node") return
+
+shouldBeLeaf :: Node -> Value -> Expectation
+shouldBeLeaf node value = _nodeValue node `shouldBe` (Just value)
+
+shouldBeDirectory :: Node -> Expectation
+shouldBeDirectory node = _nodeDir node `shouldBe` True
+
+
 spec :: Spec
 spec = parallel $ do
 
     describe "Key Space Operations" $ do
-        describe "Setting the value of a key" $ do
-            it "should return the new node" $ do
-                (client, key) <- setup
-                node <- putKey client key "value" Nothing
-                node `shouldSatisfy` isJust
+        it "Setting the value of a key" $ do
+            (client, key) <- setup
+            node <- expectNode =<< putKey client key "value" Nothing
+            node `shouldBeLeaf` "value"
 
-        describe "Using key TTL" $ do
-            it "should remove the key after it has expired" $ do
-                (client, key) <- setup
-                putKey client key "value" (Just 1)
-                node <- getKey client key
-                node `shouldSatisfy` isJust
-                (fmap _nodeValue node) `shouldBe` (Just $ Just "value")
+        it "Using key TTL" $ do
+            (client, key) <- setup
+            putKey client key "value" (Just 1)
+            node <- expectNode =<< getKey client key
+            node `shouldBeLeaf` "value"
 
-                threadDelay $ 2 * 1000 * 1000
-                node <- getKey client key
-                node `shouldSatisfy` isNothing
+            threadDelay $ 2 * 1000 * 1000
+            node <- getKey client key
+            node `shouldSatisfy` isNothing
 
-        describe "Changing the value of a key" $ do
-            it "should return the new node" $ do
-                (client, key) <- setup
-                putKey client key "value" Nothing
-                node <- putKey client key "value2" Nothing
-                node `shouldSatisfy` isJust
-                (fmap _nodeValue node) `shouldBe` (Just $ Just "value2")
+        it "Changing the value of a key" $ do
+            (client, key) <- setup
+            putKey client key "value" Nothing
+            node <- expectNode =<< putKey client key "value2" Nothing
+            node `shouldBeLeaf` "value2"
 
-        describe "Get the value of a key" $ do
-            it "should return the node if present" $ do
-                (client, _) <- setup
-                node <- getKey client "/_etcd/machines"
-                node `shouldSatisfy` isJust
+        it "Get the value of a key" $ do
+            (client, _) <- setup
+            void $ fromJust <$> getKey client "/_etcd/machines"
+
+        it "Creating directories" $ do
+            (client, key) <- setup
+            createDirectory client key Nothing
+            node <- expectNode =<< getKey client key
+            shouldBeDirectory node
+
+        it "Deleting a directory" $ do
+            (client, key) <- setup
+            createDirectory client key Nothing
+            removeDirectory client key
+
+        it "Listing a directory" $ do
+            (client, key) <- setup
+            createDirectory client key Nothing
+            putKey client (key ++ "/one") "value" Nothing
+            nodes <- listDirectoryContents client key
+            length nodes `shouldBe` 1
+            _nodeValue (head nodes) `shouldBe` (Just "value")
+
+        it "Deleting a directory recursively" $ do
+            (client, key) <- setup
+            createDirectory client key Nothing
+            putKey client (key ++ "/one") "value" Nothing
+            removeDirectoryRecursive client key

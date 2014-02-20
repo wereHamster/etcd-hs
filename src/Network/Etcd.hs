@@ -5,20 +5,29 @@ module Network.Etcd
     , createClient
 
     , Node(..)
+    , Value
 
     , listKeys
     , getKey
     , putKey
+
+      -- * Directory operations
+    , createDirectory
+    , listDirectoryContents
+    , removeDirectory
+    , removeDirectoryRecursive
     ) where
 
 
-import           Data.Aeson hiding (Error)
+import           Data.Aeson hiding (Value, Error)
 import           Data.ByteString.Char8 (pack)
 import           Data.Time.Clock
 import           Data.Time.LocalTime
+import           Data.List
 
 import           Control.Applicative
 import           Control.Exception
+import           Control.Monad
 
 import           Network.HTTP.Conduit hiding (Response, path)
 
@@ -37,6 +46,10 @@ versionPrefix = "v2"
 
 buildUrl :: Client -> String -> String
 buildUrl c p = leaderUrl c ++ "/" ++ versionPrefix ++ "/" ++ p
+
+-- | The URL to the given key.
+keyUrl :: Client -> Key -> String
+keyUrl client key = leaderUrl client ++ "/" ++ versionPrefix ++ "/keys/" ++ key
 
 
 ------------------------------------------------------------------------------
@@ -91,6 +104,21 @@ instance FromJSON Error where
 type Index = Int
 
 
+-- | Keys are strings, formatted like filesystem paths (ie. slash-delimited
+-- list of path components).
+type Key = String
+
+
+-- | Values attached to leaf nodes are strings. If you want to store
+-- structured data in the values, you'll need to encode it into a string.
+type Value = String
+
+
+-- | TTL is specified in seconds. The server accepts negative values, but they
+-- don't make much sense.
+type TTL = Int
+
+
 -- | The 'Node' corresponds to the node object as returned by the etcd API.
 --
 -- There are two types of nodes in etcd. One is a leaf node which holds
@@ -104,7 +132,7 @@ type Index = Int
 -- the two fields 'ttl' and 'expiration'.
 
 data Node = Node
-    { _nodeKey           :: String
+    { _nodeKey           :: Key
       -- ^ The key of the node. It always starts with a slash character (0x47).
 
     , _nodeCreatedIndex  :: Index
@@ -118,7 +146,7 @@ data Node = Node
     , _nodeDir           :: Bool
       -- ^ 'True' if this node is a directory.
 
-    , _nodeValue         :: Maybe String
+    , _nodeValue         :: Maybe Value
       -- ^ The value is only present on value nodes. If the node is
       -- a directory, then this field is 'Nothing'.
 
@@ -126,7 +154,7 @@ data Node = Node
       -- ^ If this node is a directory, then these are its children. The list
       -- may be empty.
 
-    , _nodeTTL           :: Maybe Int
+    , _nodeTTL           :: Maybe TTL
       -- ^ If the node has TTL set, this is the number of seconds how long the
       -- node will exist.
 
@@ -186,6 +214,19 @@ httpPUT url params = do
     return $ maybe (Left Error) Right $ decode body
 
 
+-- | Issue a DELETE request to the given url. Since DELETE requests don't have
+-- a body, the params are appended to the URL as a query string.
+httpDELETE :: String -> [(String, String)] -> IO HR
+httpDELETE url params = do
+    req  <- parseUrl $ url ++ (asQueryParams params)
+    body <- responseBody <$> (withManager $ httpLbs $ req { method = "DELETE" })
+    return $ maybe (Left Error) Right $ decode body
+
+  where
+    asQueryParams [] = ""
+    asQueryParams xs = "?" ++ intercalate "&" (map (\(k,v) -> k ++ "=" ++ v) xs)
+
+
 ------------------------------------------------------------------------------
 -- | Run a low-level HTTP request. Catch any exceptions and convert them into
 -- a 'Left Error'.
@@ -195,6 +236,11 @@ runRequest a = catch a (ignoreExceptionWith (return $ Left Error))
 ignoreExceptionWith :: a -> SomeException -> a
 ignoreExceptionWith a _ = a
 
+
+-- | Encode an optional TTL into a param pair.
+ttlParam :: Maybe TTL -> [(String,String)]
+ttlParam Nothing    = []
+ttlParam (Just ttl) = [("ttl",show ttl)]
 
 
 {-|---------------------------------------------------------------------------
@@ -226,12 +272,59 @@ getKey client path = do
         Right res -> return $ Just $ _resNode res
 
 
-putKey :: Client -> String -> String -> Maybe Int -> IO (Maybe Node)
+putKey :: Client -> Key -> Value -> Maybe TTL -> IO (Maybe Node)
 putKey client path value mbTTL = do
     hr <- httpPUT (buildUrl client $ "keys/" ++ path) params
     case hr of
         Left _ -> return Nothing
         Right res -> return $ Just $ _resNode res
   where
-    params = [("value",value)] ++ ttl
-    ttl    = maybe [] (\x -> [("ttl", show x)]) mbTTL
+    params = [("value",value)] ++ ttlParam mbTTL
+
+
+
+{-|---------------------------------------------------------------------------
+
+Directories are non-leaf nodes which contain zero or more child nodes. When
+manipulating directories one must include dir=true in the request params.
+
+-}
+
+dirParam :: [(String,String)]
+dirParam = [("dir","true")]
+
+recursiveParam :: [(String,String)]
+recursiveParam = [("recursive","true")]
+
+
+-- | Create a directory at the given key.
+createDirectory :: Client -> Key -> Maybe TTL -> IO ()
+createDirectory client key mbTTL =
+    void $ httpPUT (keyUrl client key) $ dirParam ++ ttlParam mbTTL
+
+
+-- | List all nodes within the given directory.
+listDirectoryContents :: Client -> Key -> IO [Node]
+listDirectoryContents client key = do
+    hr <- runRequest $ httpGET $ keyUrl client key
+    case hr of
+        Left _ -> return []
+        Right res -> do
+            let node = _resNode res
+            case _nodeNodes node of
+                Nothing -> return []
+                Just children -> return children
+
+
+-- | Remove the directory at the given key. The directory MUST be empty,
+-- otherwise the removal fails. If you don't care about the keys within, you
+-- can use 'removeDirectoryRecursive'.
+removeDirectory :: Client -> Key -> IO ()
+removeDirectory client key =
+    void $ httpDELETE (keyUrl client key) dirParam
+
+
+-- | Remove the directory at the given key, including all its children.
+removeDirectoryRecursive :: Client -> Key -> IO ()
+removeDirectoryRecursive client key =
+    void $ httpDELETE (keyUrl client key) $ dirParam ++ recursiveParam
