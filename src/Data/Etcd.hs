@@ -133,12 +133,12 @@ httpGET url = do
     acceptJSON req = req { requestHeaders = acceptHeader : requestHeaders req }
 
 
-httpPOST :: String -> [(String, String)] -> IO HR
-httpPOST url params = do
+httpPUT :: String -> [(String, String)] -> IO HR
+httpPUT url params = do
     req' <- parseUrl url
     let req = urlEncodedBody (map (\(k,v) -> (pack k, pack v)) params) $ req'
 
-    void $ withManager $ httpLbs req
+    void $ withManager $ httpLbs $ req { method = "PUT" }
     return $ Left Error
 
 
@@ -184,5 +184,5 @@ getKey client path = do
 
 putKey :: Client -> String -> String -> IO ()
 putKey client path value = do
-    void $ httpPOST (buildUrl client $ "keys/" ++ path) [("value", value)]
+    void $ httpPUT (buildUrl client $ "keys/" ++ path) [("value", value)]
     return ()
