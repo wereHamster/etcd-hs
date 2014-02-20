@@ -3,7 +3,6 @@ module Main where
 import           Test.Hspec
 
 import           Data.Char
-import           Data.Etcd
 import           Data.Maybe
 
 import           Control.Applicative
@@ -11,6 +10,7 @@ import           Control.Concurrent
 import           Control.Monad.Random (getRandomR, evalRandIO)
 import           Control.Monad.Trans
 
+import           Network.Etcd
 
 
 main :: IO ()

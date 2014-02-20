@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Data.Etcd
+module Network.Etcd
     ( Client(..)
     , createClient
 
@@ -19,7 +19,6 @@ import           Data.Time.LocalTime
 
 import           Control.Applicative
 import           Control.Exception
-import           Control.Monad
 
 import           Network.HTTP.Conduit hiding (Response, path)
 
