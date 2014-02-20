@@ -14,6 +14,8 @@ module Data.Etcd
 
 import           Data.Aeson hiding (Error)
 import           Data.ByteString.Char8 (pack)
+import           Data.Time.Clock
+import           Data.Time.LocalTime
 
 import           Control.Applicative
 import           Control.Exception
@@ -85,23 +87,66 @@ instance FromJSON Error where
     parseJSON _ = return Error
 
 
+-- | The etcd index is a unique, monotonically-incrementing integer created for
+-- each change to etcd. See etcd documentation for more details.
+type Index = Int
+
+
+-- | The 'Node' corresponds to the node object as returned by the etcd API.
+--
+-- There are two types of nodes in etcd. One is a leaf node which holds
+-- a value, the other is a directory node which holds zero or more child nodes.
+-- A directory node can not hold a value, the two types are exclusive.
+--
+-- On the wire, the two are not really distinguished, except that the JSON
+-- objects have different fields.
+--
+-- A node may be set to expire after a number of seconds. This is indicated by
+-- the two fields 'ttl' and 'expiration'.
 
 data Node = Node
     { _nodeKey           :: String
+      -- ^ The key of the node. It always starts with a slash character (0x47).
+
+    , _nodeCreatedIndex  :: Index
+      -- ^ A unique index, reflects the point in the etcd state machine at
+      -- which the given key was created.
+
+    , _nodeModifiedIndex :: Index
+      -- ^ Like '_nodeCreatedIndex', but reflects when the node was laste
+      -- changed.
+
+    , _nodeDir           :: Bool
+      -- ^ 'True' if this node is a directory.
+
     , _nodeValue         :: Maybe String
-    , _nodeCreatedIndex  :: Int
-    , _nodeModifiedIndex :: Int
+      -- ^ The value is only present on value nodes. If the node is
+      -- a directory, then this field is 'Nothing'.
+
     , _nodeNodes         :: Maybe [Node]
+      -- ^ If this node is a directory, then these are its children. The list
+      -- may be empty.
+
+    , _nodeTTL           :: Maybe Int
+      -- ^ If the node has TTL set, this is the number of seconds how long the
+      -- node will exist.
+
+    , _nodeExpiration    :: Maybe UTCTime
+      -- ^ If TTL is set, then this is the time when it expires.
+
     } deriving (Show, Eq, Ord)
 
 
 instance FromJSON Node where
     parseJSON (Object o) = Node
         <$> o .:  "key"
-        <*> o .:? "value"
         <*> o .:  "createdIndex"
         <*> o .:  "modifiedIndex"
+        <*> o .:? "dir" .!= False
+        <*> o .:? "value"
         <*> o .:? "nodes"
+        <*> o .:? "ttl"
+        <*> (fmap zonedTimeToUTC <$> (o .:? "expiration"))
 
     parseJSON _ = fail "Response"
 
@@ -138,8 +183,8 @@ httpPUT url params = do
     req' <- parseUrl url
     let req = urlEncodedBody (map (\(k,v) -> (pack k, pack v)) params) $ req'
 
-    void $ withManager $ httpLbs $ req { method = "PUT" }
-    return $ Left Error
+    body <- responseBody <$> (withManager $ httpLbs $ req { method = "PUT" })
+    return $ maybe (Left Error) Right $ decode body
 
 
 ------------------------------------------------------------------------------
@@ -182,7 +227,12 @@ getKey client path = do
         Right res -> return $ Just $ _resNode res
 
 
-putKey :: Client -> String -> String -> IO ()
-putKey client path value = do
-    void $ httpPUT (buildUrl client $ "keys/" ++ path) [("value", value)]
-    return ()
+putKey :: Client -> String -> String -> Maybe Int -> IO (Maybe Node)
+putKey client path value mbTTL = do
+    hr <- httpPUT (buildUrl client $ "keys/" ++ path) params
+    case hr of
+        Left _ -> return Nothing
+        Right res -> return $ Just $ _resNode res
+  where
+    params = [("value",value)] ++ ttl
+    ttl    = maybe [] (\x -> [("ttl", show x)]) mbTTL
