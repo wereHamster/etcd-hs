@@ -1,6 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Data.Etcd where
+module Data.Etcd
+    ( Client(..)
+    , createClient
+
+    , Node(..)
+
+    , listKeys
+    , getKey
+    , putKey
+    ) where
 
 
 import           Data.Aeson hiding (Error)
