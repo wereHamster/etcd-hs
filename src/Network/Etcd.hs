@@ -4,12 +4,18 @@ module Network.Etcd
     ( Client(..)
     , createClient
 
-    , Node(..)
+      -- * Types
+    , Index
+    , Key
     , Value
+    , TTL
 
-    , listKeys
-    , getKey
-    , putKey
+    , Node(..)
+
+      -- * Low-level key operations
+    , get
+    , set
+    , create
 
       -- * Directory operations
     , createDirectory
@@ -43,9 +49,6 @@ data Client = Client
 versionPrefix :: String
 versionPrefix = "v2"
 
-
-buildUrl :: Client -> String -> String
-buildUrl c p = leaderUrl c ++ "/" ++ versionPrefix ++ "/" ++ p
 
 -- | The URL to the given key.
 keyUrl :: Client -> Key -> String
@@ -213,6 +216,14 @@ httpPUT url params = do
     body <- responseBody <$> (withManager $ httpLbs $ req { method = "PUT" })
     return $ maybe (Left Error) Right $ decode body
 
+httpPOST :: String -> [(String, String)] -> IO HR
+httpPOST url params = do
+    req' <- parseUrl url
+    let req = urlEncodedBody (map (\(k,v) -> (pack k, pack v)) params) $ req'
+
+    body <- responseBody <$> (withManager $ httpLbs $ req { method = "POST" })
+    return $ maybe (Left Error) Right $ decode body
+
 
 -- | Issue a DELETE request to the given url. Since DELETE requests don't have
 -- a body, the params are appended to the URL as a query string.
@@ -243,7 +254,8 @@ ttlParam Nothing    = []
 ttlParam (Just ttl) = [("ttl",show ttl)]
 
 
-{-|---------------------------------------------------------------------------
+
+{-----------------------------------------------------------------------------
 
 Public API
 
@@ -256,34 +268,45 @@ createClient :: [ String ] -> IO Client
 createClient seed = return $ Client (head seed) seed
 
 
-listKeys :: Client -> String -> IO [ Node ]
-listKeys client path = do
-    hr <- runRequest $ httpGET $ buildUrl client $ "keys/" ++ path
+
+{-----------------------------------------------------------------------------
+
+Low-level key operations
+
+-}
+
+get :: Client -> String -> IO (Maybe Node)
+get client key = do
+    hr <- runRequest $ httpGET $ keyUrl client key
     case hr of
-        Left _ -> return []
-        Right res -> return $ [ _resNode res ]
+        Left _ -> return Nothing
+        Right res -> return $ Just $ _resNode res
 
 
-getKey :: Client -> String -> IO (Maybe Node)
-getKey client path = do
-    hr <- runRequest $ httpGET $ buildUrl client $ "keys/" ++ path
+set :: Client -> Key -> Value -> Maybe TTL -> IO (Maybe Node)
+set client key value mbTTL = do
+    hr <- httpPUT (keyUrl client key) params
     case hr of
         Left _ -> return Nothing
         Right res -> return $ Just $ _resNode res
 
+  where
+    params = [("value",value)] ++ ttlParam mbTTL
 
-putKey :: Client -> Key -> Value -> Maybe TTL -> IO (Maybe Node)
-putKey client path value mbTTL = do
-    hr <- httpPUT (buildUrl client $ "keys/" ++ path) params
+
+create :: Client -> Key -> Value -> Maybe TTL -> IO Node
+create client key value mbTTL = do
+    hr <- httpPOST (keyUrl client key) params
     case hr of
-        Left _ -> return Nothing
-        Right res -> return $ Just $ _resNode res
+        Left _ -> error "Unexpected error"
+        Right res -> return $ _resNode res
+
   where
     params = [("value",value)] ++ ttlParam mbTTL
 
 
 
-{-|---------------------------------------------------------------------------
+{-----------------------------------------------------------------------------
 
 Directories are non-leaf nodes which contain zero or more child nodes. When
 manipulating directories one must include dir=true in the request params.

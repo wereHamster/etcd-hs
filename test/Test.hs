@@ -55,33 +55,33 @@ spec = parallel $ do
     describe "Key Space Operations" $ do
         it "Setting the value of a key" $ do
             (client, key) <- setup
-            node <- expectNode =<< putKey client key "value" Nothing
+            node <- expectNode =<< set client key "value" Nothing
             node `shouldBeLeaf` "value"
 
         it "Using key TTL" $ do
             (client, key) <- setup
-            putKey client key "value" (Just 1)
-            node <- expectNode =<< getKey client key
+            set client key "value" (Just 1)
+            node <- expectNode =<< get client key
             node `shouldBeLeaf` "value"
 
             threadDelay $ 2 * 1000 * 1000
-            node <- getKey client key
+            node <- get client key
             node `shouldSatisfy` isNothing
 
         it "Changing the value of a key" $ do
             (client, key) <- setup
-            putKey client key "value" Nothing
-            node <- expectNode =<< putKey client key "value2" Nothing
+            set client key "value" Nothing
+            node <- expectNode =<< set client key "value2" Nothing
             node `shouldBeLeaf` "value2"
 
         it "Get the value of a key" $ do
             (client, _) <- setup
-            void $ fromJust <$> getKey client "/_etcd/machines"
+            void $ fromJust <$> get client "/_etcd/machines"
 
         it "Creating directories" $ do
             (client, key) <- setup
             createDirectory client key Nothing
-            node <- expectNode =<< getKey client key
+            node <- expectNode =<< get client key
             shouldBeDirectory node
 
         it "Deleting a directory" $ do
@@ -92,7 +92,7 @@ spec = parallel $ do
         it "Listing a directory" $ do
             (client, key) <- setup
             createDirectory client key Nothing
-            putKey client (key ++ "/one") "value" Nothing
+            set client (key ++ "/one") "value" Nothing
             nodes <- listDirectoryContents client key
             length nodes `shouldBe` 1
             _nodeValue (head nodes) `shouldBe` (Just "value")
@@ -100,5 +100,15 @@ spec = parallel $ do
         it "Deleting a directory recursively" $ do
             (client, key) <- setup
             createDirectory client key Nothing
-            putKey client (key ++ "/one") "value" Nothing
+            set client (key ++ "/one") "value" Nothing
             removeDirectoryRecursive client key
+
+        it "Atomically Creating In-Order Keys" $ do
+            (client, key) <- setup
+            createDirectory client key Nothing
+            node <- create client key "value" Nothing
+            node `shouldBeLeaf` "value"
+
+            nodes <- listDirectoryContents client key
+            length nodes `shouldBe` 1
+            _nodeValue (head nodes) `shouldBe` (Just "value")
