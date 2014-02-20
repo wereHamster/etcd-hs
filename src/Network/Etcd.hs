@@ -285,7 +285,7 @@ get client key = do
 
 set :: Client -> Key -> Value -> Maybe TTL -> IO (Maybe Node)
 set client key value mbTTL = do
-    hr <- httpPUT (keyUrl client key) params
+    hr <- runRequest $ httpPUT (keyUrl client key) params
     case hr of
         Left _ -> return Nothing
         Right res -> return $ Just $ _resNode res
@@ -296,7 +296,7 @@ set client key value mbTTL = do
 
 create :: Client -> Key -> Value -> Maybe TTL -> IO Node
 create client key value mbTTL = do
-    hr <- httpPOST (keyUrl client key) params
+    hr <- runRequest $ httpPOST (keyUrl client key) params
     case hr of
         Left _ -> error "Unexpected error"
         Right res -> return $ _resNode res
@@ -323,7 +323,7 @@ recursiveParam = [("recursive","true")]
 -- | Create a directory at the given key.
 createDirectory :: Client -> Key -> Maybe TTL -> IO ()
 createDirectory client key mbTTL =
-    void $ httpPUT (keyUrl client key) $ dirParam ++ ttlParam mbTTL
+    void $ runRequest $ httpPUT (keyUrl client key) $ dirParam ++ ttlParam mbTTL
 
 
 -- | List all nodes within the given directory.
@@ -344,10 +344,10 @@ listDirectoryContents client key = do
 -- can use 'removeDirectoryRecursive'.
 removeDirectory :: Client -> Key -> IO ()
 removeDirectory client key =
-    void $ httpDELETE (keyUrl client key) dirParam
+    void $ runRequest $ httpDELETE (keyUrl client key) dirParam
 
 
 -- | Remove the directory at the given key, including all its children.
 removeDirectoryRecursive :: Client -> Key -> IO ()
 removeDirectoryRecursive client key =
-    void $ httpDELETE (keyUrl client key) $ dirParam ++ recursiveParam
+    void $ runRequest $ httpDELETE (keyUrl client key) $ dirParam ++ recursiveParam
