@@ -1,16 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+{-|
+
+This module contains an implementation of the etcd client.
+
+-}
+
 module Network.Etcd
-    ( Client(..)
+    ( Client
     , createClient
 
       -- * Types
+    , Node(..)
     , Index
     , Key
     , Value
     , TTL
-
-    , Node(..)
 
       -- * Low-level key operations
     , get
@@ -38,9 +43,11 @@ import           Control.Monad
 import           Network.HTTP.Conduit hiding (Response, path)
 
 
+-- | The 'Client' holds all data required to make requests to the etcd
+-- cluster. You should use 'createClient' to initialize a new client.
 data Client = Client
     { leaderUrl :: String
-    , machines :: [ String ]
+      -- ^ The URL to the leader. HTTP requests are sent to this server.
     }
 
 
@@ -150,7 +157,7 @@ data Node = Node
       -- ^ 'True' if this node is a directory.
 
     , _nodeValue         :: Maybe Value
-      -- ^ The value is only present on value nodes. If the node is
+      -- ^ The value is only present on leaf nodes. If the node is
       -- a directory, then this field is 'Nothing'.
 
     , _nodeNodes         :: Maybe [Node]
@@ -265,7 +272,7 @@ Public API
 -- | Create a new client and initialize it with a list of seed machines. The
 -- list must be non-empty.
 createClient :: [ String ] -> IO Client
-createClient seed = return $ Client (head seed) seed
+createClient seed = return $ Client (head seed)
 
 
 
@@ -275,7 +282,9 @@ Low-level key operations
 
 -}
 
-get :: Client -> String -> IO (Maybe Node)
+
+-- | Get the node at the given key.
+get :: Client -> Key -> IO (Maybe Node)
 get client key = do
     hr <- runRequest $ httpGET $ keyUrl client key
     case hr of
@@ -283,6 +292,7 @@ get client key = do
         Right res -> return $ Just $ _resNode res
 
 
+-- | Set the value at the given key.
 set :: Client -> Key -> Value -> Maybe TTL -> IO (Maybe Node)
 set client key value mbTTL = do
     hr <- runRequest $ httpPUT (keyUrl client key) params
@@ -294,6 +304,7 @@ set client key value mbTTL = do
     params = [("value",value)] ++ ttlParam mbTTL
 
 
+-- | Create a value in the given key. The key must be a directory.
 create :: Client -> Key -> Value -> Maybe TTL -> IO Node
 create client key value mbTTL = do
     hr <- runRequest $ httpPOST (keyUrl client key) params
