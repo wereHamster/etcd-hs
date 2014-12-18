@@ -31,10 +31,13 @@ module Network.Etcd
 
 
 import           Data.Aeson hiding (Value, Error)
-import           Data.ByteString.Char8 (pack)
 import           Data.Time.Clock
 import           Data.Time.LocalTime
 import           Data.List
+import           Data.Text (Text)
+import qualified Data.Text as T
+import           Data.Text.Encoding
+import           Data.Monoid
 
 import           Control.Applicative
 import           Control.Exception
@@ -46,20 +49,20 @@ import           Network.HTTP.Conduit hiding (Response, path)
 -- | The 'Client' holds all data required to make requests to the etcd
 -- cluster. You should use 'createClient' to initialize a new client.
 data Client = Client
-    { leaderUrl :: String
+    { leaderUrl :: !Text
       -- ^ The URL to the leader. HTTP requests are sent to this server.
     }
 
 
 
 -- | The version prefix used in URLs. The current client supports v2.
-versionPrefix :: String
+versionPrefix :: Text
 versionPrefix = "v2"
 
 
 -- | The URL to the given key.
-keyUrl :: Client -> Key -> String
-keyUrl client key = leaderUrl client ++ "/" ++ versionPrefix ++ "/keys/" ++ key
+keyUrl :: Client -> Key -> Text
+keyUrl client key = leaderUrl client <> "/" <> versionPrefix <> "/keys/" <> key
 
 
 ------------------------------------------------------------------------------
@@ -116,12 +119,12 @@ type Index = Int
 
 -- | Keys are strings, formatted like filesystem paths (ie. slash-delimited
 -- list of path components).
-type Key = String
+type Key = Text
 
 
 -- | Values attached to leaf nodes are strings. If you want to store
 -- structured data in the values, you'll need to encode it into a string.
-type Value = String
+type Value = Text
 
 
 -- | TTL is specified in seconds. The server accepts negative values, but they
@@ -142,33 +145,33 @@ type TTL = Int
 -- the two fields 'ttl' and 'expiration'.
 
 data Node = Node
-    { _nodeKey           :: Key
+    { _nodeKey           :: !Key
       -- ^ The key of the node. It always starts with a slash character (0x47).
 
-    , _nodeCreatedIndex  :: Index
+    , _nodeCreatedIndex  :: !Index
       -- ^ A unique index, reflects the point in the etcd state machine at
       -- which the given key was created.
 
-    , _nodeModifiedIndex :: Index
+    , _nodeModifiedIndex :: !Index
       -- ^ Like '_nodeCreatedIndex', but reflects when the node was laste
       -- changed.
 
-    , _nodeDir           :: Bool
+    , _nodeDir           :: !Bool
       -- ^ 'True' if this node is a directory.
 
-    , _nodeValue         :: Maybe Value
+    , _nodeValue         :: !(Maybe Value)
       -- ^ The value is only present on leaf nodes. If the node is
       -- a directory, then this field is 'Nothing'.
 
-    , _nodeNodes         :: Maybe [Node]
+    , _nodeNodes         :: !(Maybe [Node])
       -- ^ If this node is a directory, then these are its children. The list
       -- may be empty.
 
-    , _nodeTTL           :: Maybe TTL
+    , _nodeTTL           :: !(Maybe TTL)
       -- ^ If the node has TTL set, this is the number of seconds how long the
       -- node will exist.
 
-    , _nodeExpiration    :: Maybe UTCTime
+    , _nodeExpiration    :: !(Maybe UTCTime)
       -- ^ If TTL is set, then this is the time when it expires.
 
     } deriving (Show, Eq, Ord)
@@ -204,9 +207,9 @@ throw an exception if the server is unreachable or not responding.
 type HR = Either Error Response
 
 
-httpGET :: String -> IO HR
+httpGET :: Text -> IO HR
 httpGET url = do
-    req  <- acceptJSON <$> parseUrl url
+    req  <- acceptJSON <$> parseUrl (T.unpack url)
     body <- responseBody <$> (withManager $ httpLbs req)
     return $ maybe (Left Error) Right $ decode body
 
@@ -215,18 +218,18 @@ httpGET url = do
     acceptJSON req = req { requestHeaders = acceptHeader : requestHeaders req }
 
 
-httpPUT :: String -> [(String, String)] -> IO HR
+httpPUT :: Text -> [(Text, Text)] -> IO HR
 httpPUT url params = do
-    req' <- parseUrl url
-    let req = urlEncodedBody (map (\(k,v) -> (pack k, pack v)) params) $ req'
+    req' <- parseUrl (T.unpack url)
+    let req = urlEncodedBody (map (\(k,v) -> (encodeUtf8 k, encodeUtf8 v)) params) $ req'
 
     body <- responseBody <$> (withManager $ httpLbs $ req { method = "PUT" })
     return $ maybe (Left Error) Right $ decode body
 
-httpPOST :: String -> [(String, String)] -> IO HR
+httpPOST :: Text -> [(Text, Text)] -> IO HR
 httpPOST url params = do
-    req' <- parseUrl url
-    let req = urlEncodedBody (map (\(k,v) -> (pack k, pack v)) params) $ req'
+    req' <- parseUrl (T.unpack url)
+    let req = urlEncodedBody (map (\(k,v) -> (encodeUtf8 k, encodeUtf8 v)) params) $ req'
 
     body <- responseBody <$> (withManager $ httpLbs $ req { method = "POST" })
     return $ maybe (Left Error) Right $ decode body
@@ -234,15 +237,15 @@ httpPOST url params = do
 
 -- | Issue a DELETE request to the given url. Since DELETE requests don't have
 -- a body, the params are appended to the URL as a query string.
-httpDELETE :: String -> [(String, String)] -> IO HR
+httpDELETE :: Text -> [(Text, Text)] -> IO HR
 httpDELETE url params = do
-    req  <- parseUrl $ url ++ (asQueryParams params)
+    req  <- parseUrl $ T.unpack $ url <> (asQueryParams params)
     body <- responseBody <$> (withManager $ httpLbs $ req { method = "DELETE" })
     return $ maybe (Left Error) Right $ decode body
 
   where
     asQueryParams [] = ""
-    asQueryParams xs = "?" ++ intercalate "&" (map (\(k,v) -> k ++ "=" ++ v) xs)
+    asQueryParams xs = "?" <> mconcat (intersperse "&" (map (\(k,v) -> k <> "=" <> v) xs))
 
 
 ------------------------------------------------------------------------------
@@ -256,9 +259,9 @@ ignoreExceptionWith a _ = a
 
 
 -- | Encode an optional TTL into a param pair.
-ttlParam :: Maybe TTL -> [(String,String)]
+ttlParam :: Maybe TTL -> [(Text, Text)]
 ttlParam Nothing    = []
-ttlParam (Just ttl) = [("ttl",show ttl)]
+ttlParam (Just ttl) = [("ttl", T.pack $ show ttl)]
 
 
 
@@ -271,7 +274,7 @@ Public API
 
 -- | Create a new client and initialize it with a list of seed machines. The
 -- list must be non-empty.
-createClient :: [ String ] -> IO Client
+createClient :: [ Text ] -> IO Client
 createClient seed = return $ Client (head seed)
 
 
@@ -324,10 +327,10 @@ manipulating directories one must include dir=true in the request params.
 
 -}
 
-dirParam :: [(String,String)]
+dirParam :: [(Text, Text)]
 dirParam = [("dir","true")]
 
-recursiveParam :: [(String,String)]
+recursiveParam :: [(Text, Text)]
 recursiveParam = [("recursive","true")]
 
 

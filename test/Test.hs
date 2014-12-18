@@ -1,9 +1,14 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
 import           Test.Hspec
 
 import           Data.Char
 import           Data.Maybe
+import           Data.Text (Text)
+import qualified Data.Text as T
+import           Data.Monoid
 
 import           Control.Applicative
 import           Control.Concurrent
@@ -18,10 +23,10 @@ main :: IO ()
 main = hspec spec
 
 
-randomKey :: IO String
+randomKey :: IO Text
 randomKey = do
     rnd <- evalRandIO (sequence $ repeat $ getRandomR (0, 61))
-    return $ take 13 $ map alnum rnd
+    return $ T.pack $ take 13 $ map alnum rnd
   where
     alnum :: Int -> Char
     alnum x
@@ -31,7 +36,7 @@ randomKey = do
         | otherwise = error $ "Out of range: " ++ show x
 
 
-setup :: IO (Client, String)
+setup :: IO (Client, Text)
 setup = do
     client <- createClient [ "http://127.0.0.1:4001" ]
     key    <- randomKey
@@ -92,7 +97,7 @@ spec = parallel $ do
         it "Listing a directory" $ do
             (client, key) <- setup
             createDirectory client key Nothing
-            set client (key ++ "/one") "value" Nothing
+            set client (key <> "/one") "value" Nothing
             nodes <- listDirectoryContents client key
             length nodes `shouldBe` 1
             _nodeValue (head nodes) `shouldBe` (Just "value")
@@ -100,7 +105,7 @@ spec = parallel $ do
         it "Deleting a directory recursively" $ do
             (client, key) <- setup
             createDirectory client key Nothing
-            set client (key ++ "/one") "value" Nothing
+            set client (key <> "/one") "value" Nothing
             removeDirectoryRecursive client key
 
         it "Atomically Creating In-Order Keys" $ do
