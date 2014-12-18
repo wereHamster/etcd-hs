@@ -1,5 +1,5 @@
 name:                etcd
-version:             0.1.0.2
+version:             1.0.3
 license:             OtherLicense
 license-file:        UNLICENSE
 synopsis:            Client for etcd, a highly-available key value store
