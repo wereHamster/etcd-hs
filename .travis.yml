@@ -9,6 +9,15 @@ matrix:
  allow_failures:
   - env: CABALVER=head GHCVER=head
 
+before_install:
+ - curl -L https://github.com/coreos/etcd/releases/download/v2.0.9/etcd-v2.0.9-linux-amd64.tar.gz -o etcd-v2.0.9-linux-amd64.tar.gz
+ - tar xzvf etcd-v2.0.9-linux-amd64.tar.gz
+ - cd etcd-v2.0.9-linux-amd64
+ - sudo mkdir /opt/bin
+ - sudo cp etcd* /opt/bin
+ - sudo /opt/bin/etcd &
+ - cd -
+
 install:
  - travis_retry sudo add-apt-repository -y ppa:hvr/ghc
  - travis_retry sudo apt-get update
