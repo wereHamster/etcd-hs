@@ -17,15 +17,14 @@ library
 
   exposed-modules:   Network.Etcd
 
-  build-depends:     aeson         >= 0
-  build-depends:     base          >= 4.0     && < 5
-  build-depends:     bytestring    >= 0
-  build-depends:     http-conduit  >= 0
-  build-depends:     time          >= 0
+  build-depends:     aeson
+  build-depends:     base >= 4.0 && < 5
+  build-depends:     bytestring
+  build-depends:     http-conduit
+  build-depends:     time
   build-depends:     text
 
   ghc-options:       -Wall
-
 
 
 test-suite test
