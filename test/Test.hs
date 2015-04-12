@@ -58,6 +58,11 @@ spec :: Spec
 spec = parallel $ do
 
     describe "Key Space Operations" $ do
+        it "Get the root directory node" $ do
+            (client, key) <- setup
+            node <- expectNode =<< get client "/"
+            shouldBeDirectory node
+
         it "Setting the value of a key" $ do
             (client, key) <- setup
             node <- expectNode =<< set client key "value" Nothing

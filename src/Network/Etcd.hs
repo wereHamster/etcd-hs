@@ -179,7 +179,7 @@ data Node = Node
 
 instance FromJSON Node where
     parseJSON (Object o) = Node
-        <$> o .:  "key"
+        <$> o .:?  "key" .!= "/"
         <*> o .:  "createdIndex"
         <*> o .:  "modifiedIndex"
         <*> o .:? "dir" .!= False
