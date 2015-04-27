@@ -12,6 +12,7 @@ import           Data.Monoid
 
 import           Control.Applicative
 import           Control.Concurrent
+import qualified Control.Concurrent.Async as Async
 import           Control.Monad
 import           Control.Monad.Random (getRandomR, evalRandIO)
 import           Control.Monad.Trans
@@ -87,6 +88,36 @@ spec = parallel $ do
         it "Get the value of a key" $ do
             (client, _) <- setup
             void $ fromJust <$> get client "/_etcd/machines"
+
+        it "Wait for any change on a key" $ do
+            (client, key) <- setup
+            a <- Async.async $ wait client key
+            threadDelay $ 2 * 1000 * 1000
+            Async.async $ set client key "value" Nothing
+            node <- expectNode =<< Async.wait a
+            node `shouldBeLeaf` "value"
+
+        it "Wait for a change on a key at a given index" $ do
+            (client, key) <- setup
+            Just n <- set client key "value" Nothing
+            let i = _nodeModifiedIndex n
+            node <- expectNode =<< waitIndex client key i
+            node `shouldBeLeaf` "value"
+
+        it "Wait for any change on a key recursively" $ do
+            (client, key) <- setup
+            a <- Async.async $ waitRecursive client key
+            threadDelay $ 2 * 1000 * 1000
+            Async.async $ set client (key <> "/child") "value" Nothing
+            node <- expectNode =<< Async.wait a
+            node `shouldBeLeaf` "value"
+
+        it "Wait for a change on a key at a given index recursively" $ do
+            (client, key) <- setup
+            Just n <- set client (key <> "/child") "value" Nothing
+            let i = _nodeModifiedIndex n
+            node <- expectNode =<< waitIndexRecursive client key i
+            node `shouldBeLeaf` "value"
 
         it "Creating directories" $ do
             (client, key) <- setup

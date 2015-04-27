@@ -22,6 +22,10 @@ module Network.Etcd
     , get
     , set
     , create
+    , wait
+    , waitIndex
+    , waitRecursive
+    , waitIndexRecursive
 
       -- * Directory operations
     , createDirectory
@@ -212,9 +216,10 @@ decodeResponseBody body = do
         Right n -> Right n
 
 
-httpGET :: Text -> IO HR
-httpGET url = do
-    req  <- acceptJSON <$> parseUrl (T.unpack url)
+httpGET :: Text -> [(Text, Text)] -> IO HR
+httpGET url params = do
+    req'  <- acceptJSON <$> parseUrl (T.unpack url)
+    let req = setQueryString (map (\(k,v) -> (encodeUtf8 k, Just $ encodeUtf8 v)) params) $ req'
     body <- responseBody <$> (withManager $ httpLbs req)
     decodeResponseBody body
 
@@ -288,11 +293,20 @@ Low-level key operations
 
 -}
 
+waitParam :: (Text, Text)
+waitParam = ("wait","true")
+
+waitRecursiveParam :: (Text, Text)
+waitRecursiveParam = ("recursive","true")
+
+waitIndexParam :: Index -> (Text, Text)
+waitIndexParam i = ("waitIndex", (T.pack $ show i))
+
 
 -- | Get the node at the given key.
 get :: Client -> Key -> IO (Maybe Node)
 get client key = do
-    hr <- runRequest $ httpGET $ keyUrl client key
+    hr <- runRequest $ httpGET (keyUrl client key) []
     case hr of
         Left _ -> return Nothing
         Right res -> return $ Just $ _resNode res
@@ -322,6 +336,54 @@ create client key value mbTTL = do
     params = [("value",value)] ++ ttlParam mbTTL
 
 
+-- | Wait for changes on the node at the given key.
+wait :: Client -> Key -> IO (Maybe Node)
+wait client key = do
+    hr <- runRequest $ httpGET (keyUrl client key) params
+    case hr of
+        Left _ -> return Nothing
+        Right res -> return $ Just $ _resNode res
+
+  where
+    params = [waitParam]
+
+
+-- | Same as 'wait' but at a given index.
+waitIndex :: Client -> Key -> Index -> IO (Maybe Node)
+waitIndex client key index = do
+    hr <- runRequest $ httpGET (keyUrl client key) params
+    case hr of
+        Left _ -> return Nothing
+        Right res -> return $ Just $ _resNode res
+
+  where
+    params = [waitParam, waitIndexParam index]
+
+
+-- | Same as 'wait' but includes changes on children.
+waitRecursive :: Client -> Key -> IO (Maybe Node)
+waitRecursive client key = do
+    hr <- runRequest $ httpGET (keyUrl client key) params
+    case hr of
+        Left _ -> return Nothing
+        Right res -> return $ Just $ _resNode res
+
+  where
+    params = [waitParam, waitRecursiveParam]
+
+
+-- | Same as 'waitIndex' but includes changes on children.
+waitIndexRecursive :: Client -> Key -> Index -> IO (Maybe Node)
+waitIndexRecursive client key index = do
+    hr <- runRequest $ httpGET (keyUrl client key) params
+    case hr of
+        Left _ -> return Nothing
+        Right res -> return $ Just $ _resNode res
+
+  where
+    params = [waitParam, waitIndexParam index, waitRecursiveParam]
+
+
 
 {-----------------------------------------------------------------------------
 
@@ -346,7 +408,7 @@ createDirectory client key mbTTL =
 -- | List all nodes within the given directory.
 listDirectoryContents :: Client -> Key -> IO [Node]
 listDirectoryContents client key = do
-    hr <- runRequest $ httpGET $ keyUrl client key
+    hr <- runRequest $ httpGET (keyUrl client key) []
     case hr of
         Left _ -> return []
         Right res -> do
