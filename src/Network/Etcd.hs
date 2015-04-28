@@ -153,7 +153,7 @@ data Node = Node
       -- which the given key was created.
 
     , _nodeModifiedIndex :: !Index
-      -- ^ Like '_nodeCreatedIndex', but reflects when the node was laste
+      -- ^ Like '_nodeCreatedIndex', but reflects when the node was last
       -- changed.
 
     , _nodeDir           :: !Bool
@@ -179,9 +179,9 @@ data Node = Node
 
 instance FromJSON Node where
     parseJSON (Object o) = Node
-        <$> o .:?  "key" .!= "/"
-        <*> o .:  "createdIndex"
-        <*> o .:  "modifiedIndex"
+        <$> o .:? "key" .!= "/"
+        <*> o .:? "createdIndex" .!= 0
+        <*> o .:? "modifiedIndex" .!= 0
         <*> o .:? "dir" .!= False
         <*> o .:? "value"
         <*> o .:? "nodes"
