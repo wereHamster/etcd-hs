@@ -1,4 +1,5 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
 
@@ -38,6 +39,7 @@ import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Text.Encoding
 import           Data.Monoid
+import           Data.ByteString.Lazy (ByteString)
 
 import           Control.Applicative
 import           Control.Exception
@@ -105,11 +107,8 @@ instance FromJSON Response where
 
 ------------------------------------------------------------------------------
 -- | The server sometimes responds to errors with this error object.
-data Error = Error
+data Error = Error !Text
     deriving (Show, Eq, Ord)
-
-instance FromJSON Error where
-    parseJSON _ = return Error
 
 
 -- | The etcd index is a unique, monotonically-incrementing integer created for
@@ -206,12 +205,18 @@ throw an exception if the server is unreachable or not responding.
 -- A type synonym for a http response.
 type HR = Either Error Response
 
+decodeResponseBody :: ByteString -> IO HR
+decodeResponseBody body = do
+    return $ case eitherDecode body of
+        Left e  -> Left $ Error (T.pack e)
+        Right n -> Right n
+
 
 httpGET :: Text -> IO HR
 httpGET url = do
     req  <- acceptJSON <$> parseUrl (T.unpack url)
     body <- responseBody <$> (withManager $ httpLbs req)
-    return $ maybe (Left Error) Right $ decode body
+    decodeResponseBody body
 
   where
     acceptHeader   = ("Accept","application/json")
@@ -224,7 +229,8 @@ httpPUT url params = do
     let req = urlEncodedBody (map (\(k,v) -> (encodeUtf8 k, encodeUtf8 v)) params) $ req'
 
     body <- responseBody <$> (withManager $ httpLbs $ req { method = "PUT" })
-    return $ maybe (Left Error) Right $ decode body
+    decodeResponseBody body
+
 
 httpPOST :: Text -> [(Text, Text)] -> IO HR
 httpPOST url params = do
@@ -232,7 +238,7 @@ httpPOST url params = do
     let req = urlEncodedBody (map (\(k,v) -> (encodeUtf8 k, encodeUtf8 v)) params) $ req'
 
     body <- responseBody <$> (withManager $ httpLbs $ req { method = "POST" })
-    return $ maybe (Left Error) Right $ decode body
+    decodeResponseBody body
 
 
 -- | Issue a DELETE request to the given url. Since DELETE requests don't have
@@ -241,7 +247,7 @@ httpDELETE :: Text -> [(Text, Text)] -> IO HR
 httpDELETE url params = do
     req  <- parseUrl $ T.unpack $ url <> (asQueryParams params)
     body <- responseBody <$> (withManager $ httpLbs $ req { method = "DELETE" })
-    return $ maybe (Left Error) Right $ decode body
+    decodeResponseBody body
 
   where
     asQueryParams [] = ""
@@ -252,10 +258,7 @@ httpDELETE url params = do
 -- | Run a low-level HTTP request. Catch any exceptions and convert them into
 -- a 'Left Error'.
 runRequest :: IO HR -> IO HR
-runRequest a = catch a (ignoreExceptionWith (return $ Left Error))
-
-ignoreExceptionWith :: a -> SomeException -> a
-ignoreExceptionWith a _ = a
+runRequest a = catch a (\(e :: SomeException) -> return $ Left $ Error $ T.pack $ show e)
 
 
 -- | Encode an optional TTL into a param pair.
