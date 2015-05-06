@@ -51,6 +51,8 @@ import           Control.Monad
 
 import           Network.HTTP.Conduit hiding (Response, path)
 
+import           Prelude
+
 
 -- | The 'Client' holds all data required to make requests to the etcd
 -- cluster. You should use 'createClient' to initialize a new client.
@@ -265,6 +267,9 @@ httpDELETE url params = do
 runRequest :: IO HR -> IO HR
 runRequest a = catch a (\(e :: SomeException) -> return $ Left $ Error $ T.pack $ show e)
 
+runRequest' :: IO HR -> IO (Maybe Node)
+runRequest' m = either (const Nothing) (Just . _resNode) <$> runRequest m
+
 
 -- | Encode an optional TTL into a param pair.
 ttlParam :: Maybe TTL -> [(Text, Text)]
@@ -305,83 +310,53 @@ waitIndexParam i = ("waitIndex", (T.pack $ show i))
 
 -- | Get the node at the given key.
 get :: Client -> Key -> IO (Maybe Node)
-get client key = do
-    hr <- runRequest $ httpGET (keyUrl client key) []
-    case hr of
-        Left _ -> return Nothing
-        Right res -> return $ Just $ _resNode res
+get client key =
+    runRequest' $ httpGET (keyUrl client key) []
 
 
 -- | Set the value at the given key.
 set :: Client -> Key -> Value -> Maybe TTL -> IO (Maybe Node)
-set client key value mbTTL = do
-    hr <- runRequest $ httpPUT (keyUrl client key) params
-    case hr of
-        Left _ -> return Nothing
-        Right res -> return $ Just $ _resNode res
-
-  where
-    params = [("value",value)] ++ ttlParam mbTTL
+set client key value mbTTL =
+    runRequest' $ httpPUT (keyUrl client key) $
+        [("value",value)] ++ ttlParam mbTTL
 
 
 -- | Create a value in the given key. The key must be a directory.
 create :: Client -> Key -> Value -> Maybe TTL -> IO Node
 create client key value mbTTL = do
-    hr <- runRequest $ httpPOST (keyUrl client key) params
+    hr <- runRequest $ httpPOST (keyUrl client key) $
+        [("value",value)] ++ ttlParam mbTTL
+
     case hr of
         Left _ -> error "Unexpected error"
         Right res -> return $ _resNode res
 
-  where
-    params = [("value",value)] ++ ttlParam mbTTL
-
 
 -- | Wait for changes on the node at the given key.
 wait :: Client -> Key -> IO (Maybe Node)
-wait client key = do
-    hr <- runRequest $ httpGET (keyUrl client key) params
-    case hr of
-        Left _ -> return Nothing
-        Right res -> return $ Just $ _resNode res
-
-  where
-    params = [waitParam]
+wait client key =
+    runRequest' $ httpGET (keyUrl client key) [waitParam]
 
 
 -- | Same as 'wait' but at a given index.
 waitIndex :: Client -> Key -> Index -> IO (Maybe Node)
-waitIndex client key index = do
-    hr <- runRequest $ httpGET (keyUrl client key) params
-    case hr of
-        Left _ -> return Nothing
-        Right res -> return $ Just $ _resNode res
-
-  where
-    params = [waitParam, waitIndexParam index]
+waitIndex client key index =
+    runRequest' $ httpGET (keyUrl client key) $
+        [waitParam, waitIndexParam index]
 
 
 -- | Same as 'wait' but includes changes on children.
 waitRecursive :: Client -> Key -> IO (Maybe Node)
-waitRecursive client key = do
-    hr <- runRequest $ httpGET (keyUrl client key) params
-    case hr of
-        Left _ -> return Nothing
-        Right res -> return $ Just $ _resNode res
-
-  where
-    params = [waitParam, waitRecursiveParam]
+waitRecursive client key =
+    runRequest' $ httpGET (keyUrl client key) $
+        [waitParam, waitRecursiveParam]
 
 
 -- | Same as 'waitIndex' but includes changes on children.
 waitIndexRecursive :: Client -> Key -> Index -> IO (Maybe Node)
-waitIndexRecursive client key index = do
-    hr <- runRequest $ httpGET (keyUrl client key) params
-    case hr of
-        Left _ -> return Nothing
-        Right res -> return $ Just $ _resNode res
-
-  where
-    params = [waitParam, waitIndexParam index, waitRecursiveParam]
+waitIndexRecursive client key index =
+    runRequest' $ httpGET (keyUrl client key) $
+        [waitParam, waitIndexParam index, waitRecursiveParam]
 
 
 
