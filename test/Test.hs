@@ -71,11 +71,11 @@ spec = parallel $ do
 
         it "Using key TTL" $ do
             (client, key) <- setup
-            set client key "value" (Just 1)
+            set client key "value" (Just 5)
             node <- expectNode =<< get client key
             node `shouldBeLeaf` "value"
 
-            threadDelay $ 2 * 1000 * 1000
+            threadDelay $ 6 * 1000 * 1000
             node <- get client key
             node `shouldSatisfy` isNothing
 
