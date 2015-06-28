@@ -394,7 +394,8 @@ listDirectoryContents client key = do
                 Just children -> return children
 
 
--- | List all nodes within the given directory.
+-- | Same as 'listDirectoryContents' but includes all descendant nodes. Note
+-- that directory 'Node's will not contain their children.
 listDirectoryContentsRecursive :: Client -> Key -> IO [Node]
 listDirectoryContentsRecursive client key = do
     hr <- runRequest $ httpGET (keyUrl client key) recursiveParam
