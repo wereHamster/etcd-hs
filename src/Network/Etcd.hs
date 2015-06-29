@@ -30,6 +30,7 @@ module Network.Etcd
       -- * Directory operations
     , createDirectory
     , listDirectoryContents
+    , listDirectoryContentsRecursive
     , removeDirectory
     , removeDirectoryRecursive
     ) where
@@ -391,6 +392,22 @@ listDirectoryContents client key = do
             case _nodeNodes node of
                 Nothing -> return []
                 Just children -> return children
+
+
+-- | Same as 'listDirectoryContents' but includes all descendant nodes. Note
+-- that directory 'Node's will not contain their children.
+listDirectoryContentsRecursive :: Client -> Key -> IO [Node]
+listDirectoryContentsRecursive client key = do
+    hr <- runRequest $ httpGET (keyUrl client key) recursiveParam
+    case hr of
+        Left _ -> return []
+        Right res -> do
+            let node = _resNode res
+                flatten n = n { _nodeNodes = Nothing }
+                          : maybe [] (concatMap flatten) (_nodeNodes n)
+            case _nodeNodes node of
+                Nothing -> return []
+                Just children -> return $ concatMap flatten children
 
 
 -- | Remove the directory at the given key. The directory MUST be empty,

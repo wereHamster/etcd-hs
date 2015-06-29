@@ -138,6 +138,17 @@ spec = parallel $ do
             length nodes `shouldBe` 1
             _nodeValue (head nodes) `shouldBe` (Just "value")
 
+        it "Listing a directory recursively" $ do
+            (client, key) <- setup
+            createDirectory client key Nothing
+            createDirectory client (key <> "/one") Nothing
+            set client (key <> "/one/two") "value" Nothing
+            set client (key <> "/one/three") "value" Nothing
+            nodes <- listDirectoryContentsRecursive client key
+            length nodes `shouldBe` 3
+            _nodeValue (head nodes) `shouldBe` Nothing
+            _nodeValue (last nodes) `shouldBe` (Just "value")
+
         it "Deleting a directory recursively" $ do
             (client, key) <- setup
             createDirectory client key Nothing
