@@ -223,7 +223,7 @@ httpGET :: Text -> [(Text, Text)] -> IO HR
 httpGET url params = do
     req'  <- acceptJSON <$> parseUrl (T.unpack url)
     let req = setQueryString (map (\(k,v) -> (encodeUtf8 k, Just $ encodeUtf8 v)) params) $ req'
-    body <- responseBody <$> (withManager $ httpLbs req)
+    body <- responseBody <$> (withHttpManager $ httpLbs req)
     decodeResponseBody body
 
   where
@@ -236,7 +236,7 @@ httpPUT url params = do
     req' <- parseUrl (T.unpack url)
     let req = urlEncodedBody (map (\(k,v) -> (encodeUtf8 k, encodeUtf8 v)) params) $ req'
 
-    body <- responseBody <$> (withManager $ httpLbs $ req { method = "PUT" })
+    body <- responseBody <$> (withHttpManager $ httpLbs $ req { method = "PUT" })
     decodeResponseBody body
 
 
@@ -245,7 +245,7 @@ httpPOST url params = do
     req' <- parseUrl (T.unpack url)
     let req = urlEncodedBody (map (\(k,v) -> (encodeUtf8 k, encodeUtf8 v)) params) $ req'
 
-    body <- responseBody <$> (withManager $ httpLbs $ req { method = "POST" })
+    body <- responseBody <$> (withHttpManager $ httpLbs $ req { method = "POST" })
     decodeResponseBody body
 
 
@@ -254,7 +254,7 @@ httpPOST url params = do
 httpDELETE :: Text -> [(Text, Text)] -> IO HR
 httpDELETE url params = do
     req  <- parseUrl $ T.unpack $ url <> (asQueryParams params)
-    body <- responseBody <$> (withManager $ httpLbs $ req { method = "DELETE" })
+    body <- responseBody <$> (withHttpManager $ httpLbs $ req { method = "DELETE" })
     decodeResponseBody body
 
   where
@@ -422,3 +422,10 @@ removeDirectory client key =
 removeDirectoryRecursive :: Client -> Key -> IO ()
 removeDirectoryRecursive client key =
     void $ runRequest $ httpDELETE (keyUrl client key) $ dirParam ++ recursiveParam
+
+
+-- | withManager has been removed form http-conduit-2.3
+withHttpManager :: (Manager -> IO a) -> IO a
+withHttpManager f = do
+    manager <- newManager tlsManagerSettings
+    f manager
