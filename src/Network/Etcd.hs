@@ -21,6 +21,7 @@ module Network.Etcd
       -- * Low-level key operations
     , get
     , set
+    , setcas
     , create
     , wait
     , waitIndex
@@ -73,6 +74,9 @@ versionPrefix = "v2"
 keyUrl :: Client -> Key -> Text
 keyUrl client key = leaderUrl client <> "/" <> versionPrefix <> "/keys/" <> key
 
+-- | The URL to the given key with appropriate pre-conditions. Used by setcas
+keyCasUrl :: Client -> Key -> Text -> Text
+keyCasUrl client key oldVal = leaderUrl client <> "/" <> versionPrefix <> "/keys/" <> key <> "?prevValue=" <> oldVal
 
 ------------------------------------------------------------------------------
 -- | Each response comes with an "action" field, which describes what kind of
@@ -311,9 +315,14 @@ waitIndexParam i = ("waitIndex", (T.pack $ show i))
 
 -- | Get the node at the given key.
 get :: Client -> Key -> IO (Maybe Node)
-get client key =
-    runRequest' $ httpGET (keyUrl client key) []
+get client key = runRequest' $ httpGET (keyUrl client key) []
 
+
+-- | Atomic Compare-and-Swap.
+setcas :: Value -> Client -> Key -> Value -> Maybe TTL -> IO (Maybe Node)
+setcas oldVal client key newVal mbTTL = do
+    runRequest' $  httpPUT (keyCasUrl client key oldVal) $
+               [("value",newVal)] ++ ttlParam mbTTL
 
 -- | Set the value at the given key.
 set :: Client -> Key -> Value -> Maybe TTL -> IO (Maybe Node)
