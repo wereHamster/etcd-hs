@@ -56,7 +56,6 @@ import           Network.HTTP.Conduit hiding (Response, path)
 import           Prelude
 
 
-
 -- | The 'Client' holds all data required to make requests to the etcd
 -- cluster. You should use 'createClient' to initialize a new client.
 data Client = Client
@@ -78,9 +77,6 @@ keyUrl client key = leaderUrl client <> "/" <> versionPrefix <> "/keys/" <> key
 -- | The URL to the given key with appropriate pre-conditions. Used by setcas
 keyCasUrl :: Client -> Key -> Text -> Text
 keyCasUrl client key oldVal = leaderUrl client <> "/" <> versionPrefix <> "/keys/" <> key <> "?prevValue=" <> oldVal
-
-
-
 
 ------------------------------------------------------------------------------
 -- | Each response comes with an "action" field, which describes what kind of
