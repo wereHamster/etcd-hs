@@ -319,8 +319,7 @@ waitIndexParam i = ("waitIndex", (T.pack $ show i))
 
 -- | Get the node at the given key.
 get :: Client -> Key -> IO (Maybe Node)
-get client key = do
-    runRequest' $ httpGET (keyUrl client key) []
+get client key = runRequest' $ httpGET (keyUrl client key) []
 
 
 -- | Atomic Compare-and-Swap.
